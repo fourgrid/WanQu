@@ -1,0 +1,17 @@
+/node_modules
+/oh_modules
+/local.properties
+/.idea
+**/build
+/.hvigor
+/.hvigor-home
+/.clangd
+/.clang-format
+/.clang-tidy
+**/.test
+/.appanalyzer
+/caches
+# 数据脚本的工作目录
+/scripts/node_modules
+/scripts/.npmcache
+/scripts/.DS_Store

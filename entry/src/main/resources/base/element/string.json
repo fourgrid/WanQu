@@ -1,0 +1,20 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "玩趣主模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "玩趣 - 益智游戏盒子"
+    },
+    {
+      "name": "app_name",
+      "value": "玩趣"
+    },
+    {
+      "name": "EntryFormAbility_desc",
+      "value": "今日一卦桌面卡片"
+    }
+  ]
+}

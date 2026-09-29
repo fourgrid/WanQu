@@ -1,0 +1,9 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "玩易 entry module",
+  "main": "",
+  "author": "fourgrid",
+  "license": "MIT",
+  "dependencies": {}
+}

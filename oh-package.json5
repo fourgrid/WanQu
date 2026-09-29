@@ -1,0 +1,10 @@
+{
+  "modelVersion": "5.0.5",
+  "name": "wanqu",
+  "version": "1.0.0",
+  "description": "玩易 - 易经六十四卦卡片学习",
+  "main": "",
+  "author": "fourgrid",
+  "license": "MIT",
+  "dependencies": {}
+}
