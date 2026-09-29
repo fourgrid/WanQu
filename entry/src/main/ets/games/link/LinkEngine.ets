@@ -111,8 +111,9 @@ export function findPath(tiles: number[], rows: number, cols: number, a: Pt, b: 
   const samePoint = (p: Pt, q: Pt): boolean => p.x === q.x && p.y === q.y
   const clearLine = (p: Pt, q: Pt): boolean => {
     if (p.x === q.x) {
+      // 只检查两格之间（不含端点）；相邻时中间为空，直接可连
       const from = Math.min(p.y, q.y) + 1
-      const to = Math.max(p.y, q.y)
+      const to = Math.max(p.y, q.y) - 1
       for (let y = from; y <= to; y++) {
         if (!isEmpty(p.x, y)) {
           return false
@@ -122,7 +123,7 @@ export function findPath(tiles: number[], rows: number, cols: number, a: Pt, b: 
     }
     if (p.y === q.y) {
       const from = Math.min(p.x, q.x) + 1
-      const to = Math.max(p.x, q.x)
+      const to = Math.max(p.x, q.x) - 1
       for (let x = from; x <= to; x++) {
         if (!isEmpty(x, p.y)) {
           return false
