@@ -197,34 +197,11 @@ export struct LinkPage {
       Column() {
         Stack() {
           this.Grid()
-          // 连线特效层：逐段生长 + 双层发光（键控重建规避 commands 不重绘）
+          // 连线特效层：逐段生长 + 双层发光（旋转矩形拼线，坐标完全确定）
           ForEach(this.lineSegs, (seg: string, i: number) => {
             if (i < this.segShow) {
-              Stack() {
-                Path()
-                  .commands(seg)
-                  .width(this.cols * this.cell())
-                  .height(this.rows * this.cell())
-                  .fillOpacity(0)
-                  .stroke('#FFD54F')
-                  .strokeWidth(10)
-                  .strokeLineCap(LineCapStyle.Round)
-                  .opacity(0.26)
-                  .hitTestBehavior(HitTestMode.Transparent)
-                Path()
-                  .commands(seg)
-                  .width(this.cols * this.cell())
-                  .height(this.rows * this.cell())
-                  .fillOpacity(0)
-                  .stroke(i === this.lineSegs.length - 1 ? '#FFE082' : '#FFD54F')
-                  .strokeWidth(4.5)
-                  .strokeLineCap(LineCapStyle.Round)
-                  .opacity(0.97)
-                  .hitTestBehavior(HitTestMode.Transparent)
-              }
-              .width(this.cols * this.cell())
-              .height(this.rows * this.cell())
-              .hitTestBehavior(HitTestMode.Transparent)
+              this.LineSeg(seg, i, 10, 0.26, '#FFD54F')
+              this.LineSeg(seg, i, 4.5, 0.97, i === this.lineSegs.length - 1 ? '#FFE082' : '#FFD54F')
             }
           }, (seg: string, i: number) => `seg-${i}-${seg}-${i < this.segShow}`)
           // 节点金点：端点大、拐点小，随段生长亮起
@@ -259,6 +236,41 @@ export struct LinkPage {
     }
     .width('100%')
     .justifyContent(FlexAlign.Center)
+  }
+
+  /** 解析 'M x1 y1 L x2 y2' → [x1, y1, x2, y2] */
+  private segXY(seg: string): number[] {
+    const nums = seg.replace('M', ' ').replace('L', ' ').trim().split(/\s+/)
+    return [Number(nums[0]), Number(nums[1]), Number(nums[2]), Number(nums[3])]
+  }
+
+  private segLen(seg: string): number {
+    const p = this.segXY(seg)
+    const dx = p[2] - p[0]
+    const dy = p[3] - p[1]
+    return Math.sqrt(dx * dx + dy * dy)
+  }
+
+  private segDeg(seg: string): number {
+    const p = this.segXY(seg)
+    return Math.atan2(p[3] - p[1], p[2] - p[0]) * 180 / Math.PI
+  }
+
+  /**
+   * 单段连线：定位在起点的圆角矩形，绕起点旋转 atan2 角度。
+   * 高度=线宽，宽度=两点距离；双层调用形成光晕+亮芯。
+   */
+  @Builder
+  LineSeg(seg: string, i: number, thick: number, alpha: number, color: string) {
+    Column()
+      .width(this.segLen(seg) + thick)
+      .height(thick)
+      .borderRadius(thick / 2)
+      .backgroundColor(color)
+      .opacity(alpha)
+      .position({ x: this.segXY(seg)[0] - thick / 2, y: this.segXY(seg)[1] - thick / 2 })
+      .rotate({ angle: this.segDeg(seg), centerX: thick / 2, centerY: thick / 2 })
+      .hitTestBehavior(HitTestMode.Transparent)
   }
 
   @Builder
