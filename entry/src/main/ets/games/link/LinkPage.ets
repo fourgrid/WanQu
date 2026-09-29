@@ -176,6 +176,10 @@ export struct LinkPage {
     return this.totalSeconds > 0 ? this.seconds / this.totalSeconds : 0
   }
 
+  private pathWrap(): string[] {
+    return [this.pathCmds]
+  }
+
   private cell(): number {
     // 牌宽收敛：保证整板（含页边距）远离左侧系统侧滑返回手势区
     if (this.cols <= 6) {
@@ -194,25 +198,29 @@ export struct LinkPage {
       Column() {
         Stack() {
           this.Grid()
-          if (this.pathCmds !== '') {
-            Path()
-              .commands(this.pathCmds)
-              .width(this.cols * this.cell())
-              .height(this.rows * this.cell())
-              .fillOpacity(0)
-              .stroke('#FFD54F')
-              .strokeWidth(4.5)
-              .strokeLineCap(LineCapStyle.Round)
-              .strokeLineJoin(LineJoinStyle.Round)
-              .opacity(0.95)
-              .hitTestBehavior(HitTestMode.Transparent)
-          }
+          // 键控 ForEach：commands 字符串变化即销毁重建 Path（规避 commands 属性不重绘）
+          ForEach(this.pathWrap(), (c: string) => {
+            if (c !== '') {
+              Path()
+                .commands(c)
+                .width(this.cols * this.cell())
+                .height(this.rows * this.cell())
+                .fillOpacity(0)
+                .stroke('#FFD54F')
+                .strokeWidth(4.5)
+                .strokeLineCap(LineCapStyle.Round)
+                .strokeLineJoin(LineJoinStyle.Round)
+                .opacity(0.95)
+                .hitTestBehavior(HitTestMode.Transparent)
+            }
+          }, (c: string) => `path-${c}`)
         }
         .width(this.cols * this.cell())
         .height(this.rows * this.cell())
         .alignContent(Alignment.TopStart)
       }
-      .padding(7)
+      .padding(Math.round(this.cell() / 2) + 5)
+      .clip(true)
       .borderRadius(14)
       .backgroundColor('#2F6E4F')
       .border({ width: 2, color: '#245C41' })
