@@ -193,30 +193,43 @@ function iconSudoku() {
 }
 
 function iconLink() {
-  const px = canvas([155, 89, 182], [106, 44, 140]); // 紫
-  const tiles = [[0.18, 0.62], [0.70, 0.20]];
-  const pts = [[0.28, 0.67], [0.28, 0.28], [0.75, 0.28], [0.75, 0.33]];
-  shadow(px, 0.18, 0.62, 0.22, 0.22, 0.05);
-  shadow(px, 0.70, 0.20, 0.22, 0.22, 0.05);
-  // 连线（两折）
+  // 与游戏内一致的经典样式：绿呢底 + 两张象牙白 3D 小牌 + 金色两折连线
+  const px = canvas([61, 143, 102], [36, 92, 62])
   for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-    let cov = 0;
-    for (let i = 0; i < pts.length - 1; i++) {
-      cov = Math.max(cov, segAA(x / S, y / S, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], 0.016));
-    }
-    over(px, x, y, cov, [255, 236, 179]);
+    const dxn = (x / S - 0.5) * 2, dyn = (y / S - 0.5) * 2
+    const dist = Math.sqrt(dxn * dxn + dyn * dyn) / Math.SQRT2
+    over(px, x, y, Math.min(0.5, dist * dist), [20, 52, 36])
   }
-  // 两块牌
-  const tileColors = [[241, 196, 15], [241, 196, 15]];
-  for (let i = 0; i < 2; i++) {
+  // 连线：左下牌心 → 上 → 右 → 右上牌心（金色，光晕+亮芯）
+  const pts = [[0.30, 0.68], [0.30, 0.26], [0.70, 0.26], [0.70, 0.40]]
+  const layers = [[0.052, 0.30, [255, 213, 79]], [0.024, 0.98, [255, 224, 130]]]
+  for (const L of layers) {
     for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-      let cov = rrAA(x / S, y / S, tiles[i][0], tiles[i][1], 0.22, 0.22, 0.05);
-      over(px, x, y, cov, [253, 252, 248]);
-      cov = rrAA(x / S, y / S, tiles[i][0] + 0.05, tiles[i][1] + 0.05, 0.12, 0.12, 0.03);
-      over(px, x, y, cov, tileColors[i]);
+      let cov = 0
+      for (let i = 0; i < pts.length - 1; i++) {
+        cov = Math.max(cov, segAA(x / S, y / S, pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], L[0]))
+      }
+      over(px, x, y, cov, L[2], L[1])
     }
   }
-  return px;
+  // 两张象牙白 3D 牌（位于连线两端）
+  const tiles = [[0.30, 0.68, [226, 68, 61]], [0.70, 0.26, [39, 160, 94]]]
+  for (const t of tiles) {
+    const w = 0.20, h = 0.20
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      over(px, x, y, rrAA(x / S, y / S, t[0] - w / 2, t[1] - h / 2 + 0.012, w, h, 0.045), [150, 140, 110])
+      over(px, x, y, rrAA(x / S, y / S, t[0] - w / 2, t[1] - h / 2, w, h, 0.045), [251, 247, 237])
+      over(px, x, y, rrAA(x / S, y / S, t[0] - w / 2 + 0.012, t[1] - h / 2 + 0.012, w - 0.024, h * 0.4, 0.035), [255, 255, 255], 0.55)
+      over(px, x, y, circleAA(x / S, y / S, t[0], t[1], 0.052), t[2])
+    }
+  }
+  // 端点金色光点
+  for (const p of [pts[0], pts[pts.length - 1]]) {
+    for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
+      over(px, x, y, circleAA(x / S, y / S, p[0], p[1], 0.030), [255, 232, 130], 0.9)
+    }
+  }
+  return px
 }
 
 function iconBlock() {
