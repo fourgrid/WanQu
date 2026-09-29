@@ -202,6 +202,8 @@ export struct LinkPage {
         if (this.pathCmds !== '') {
           Path()
             .commands(this.pathCmds)
+            .width(this.cols * this.cell())
+            .height(this.rows * this.cell())
             .fillOpacity(0)
             .stroke('#F1C40F')
             .strokeWidth(4.5)
@@ -232,74 +234,71 @@ export struct LinkPage {
         Row() {
           ForEach(this.range(this.cols), (c: number) => {
             this.TileCell(r * this.cols + c)
-          }, (c: number) => `tc-${r}-${c}-${this.tiles[r * this.cols + c]}-${this.dying.indexOf(r * this.cols + c) >= 0}`)
+          }, (c: number) => `tc-${r}-${c}-${this.tiles[r * this.cols + c]}-${this.dying.indexOf(r * this.cols + c) >= 0 ? 'd' : 'a'}-${this.selected === r * this.cols + c ? 's' : 'n'}`)
         }
       }, (r: number) => `tr-${r}`)
     }
+    .width(this.cols * this.cell())
+    .height(this.rows * this.cell())
   }
 
+  /**
+   * 牌格：固定尺寸 Stack。所有状态视觉（槽底/牌面/图案/描边/消散/✕）都是叠加子节点，
+   * 任何状态切换都不改变格子尺寸——点击区域与渲染位置永远一致。
+   */
   @Builder
   TileCell(idx: number) {
-    Column() {
+    Stack() {
+      // 槽位底（整格命中区域恒定，空格也可见微弱槽位）
+      Column()
+        .width(this.cell() - 4)
+        .height(this.cell() - 4)
+        .borderRadius(10)
+        .backgroundColor($r('app.color.wash'))
+        .opacity(this.tiles[idx] >= 0 ? 0 : 0.6)
+      // 牌面底座
       if (this.tiles[idx] >= 0 && this.dying.indexOf(idx) < 0) {
-        Stack() {
-          // 底座
-          Column()
-            .width('100%')
-            .height('100%')
-            .borderRadius(10)
-            .backgroundColor(this.tileColor(idx))
-            .shadow({
-              radius: this.selected === idx ? 8 : 3,
-              color: 'rgba(43,38,32,0.28)',
-              offsetY: this.selected === idx ? 5 : 2,
-              offsetX: 0,
-            })
-          // 顶部高光
-          Column()
-            .width('92%')
-            .height('38%')
-            .borderRadius({ topLeft: 9, topRight: 9 })
-            .backgroundColor('#FFFFFF66')
-          // 图案
-          Text(EMOJIS[this.tiles[idx] % EMOJIS.length])
-            .fontSize(this.cell() * 0.5)
-        }
-        .width(this.cell() - 8)
-        .height(this.cell() - 8)
-        .alignContent(Alignment.Center)
-        .scale(this.selected === idx ? { x: 1.1, y: 1.1 }
-          : (this.hintPair.indexOf(idx) >= 0 ? { x: 1.08, y: 1.08 } : { x: 1, y: 1 }))
-        .animation({ duration: 140, curve: Curve.FastOutSlowIn })
+        Column()
+          .width(this.cell() - 8)
+          .height(this.cell() - 8)
+          .borderRadius(10)
+          .backgroundColor(this.tileColor(idx))
+          .shadow({
+            radius: this.selected === idx ? 8 : 3,
+            color: 'rgba(43,38,32,0.28)',
+            offsetY: this.selected === idx ? 5 : 2,
+            offsetX: 0,
+          })
       }
-      // 选中描边（与缩放并用的强反馈）
+      // 图案（存活居中；消散时放大淡出）
+      if (this.tiles[idx] >= 0) {
+        Text(EMOJIS[this.tiles[idx] % EMOJIS.length])
+          .fontSize(this.cell() * 0.5)
+          .scale(this.dying.indexOf(idx) >= 0 ? { x: 1.5, y: 1.5 } : { x: 1, y: 1 })
+          .opacity(this.dying.indexOf(idx) >= 0 ? 0 : 1)
+          .animation({ duration: 220, curve: Curve.Friction })
+      }
+      // 选中/提示描边（叠加层，不占布局）
       if (this.selected === idx || this.hintPair.indexOf(idx) >= 0) {
         Column()
           .width(this.cell() - 4)
           .height(this.cell() - 4)
-          .borderRadius(12)
+          .borderRadius(11)
           .border({ width: 2.5, color: $r('app.color.cinnabar') })
           .hitTestBehavior(HitTestMode.Transparent)
       }
-      // 消散动画
-      if (this.dying.indexOf(idx) >= 0 && this.tiles[idx] >= 0) {
-        Text(EMOJIS[this.tiles[idx] % EMOJIS.length])
-          .fontSize(this.cell() * 0.5)
-          .scale({ x: 1.5, y: 1.5 })
-          .opacity(0)
-          .animation({ duration: 220, curve: Curve.Friction })
-      }
+      // 不可连/错误反馈（叠加层）
       if (this.wrongIdx === idx) {
         Text('✕')
           .fontSize(this.cell() * 0.4)
           .fontColor($r('app.color.cinnabar'))
           .opacity(0.9)
-          .animation({ duration: 240 })
       }
     }
-    .justifyContent(FlexAlign.Center)
     .width(this.cell())
     .height(this.cell())
+    .scale(this.selected === idx ? { x: 1.08, y: 1.08 } : { x: 1, y: 1 })
+    .animation({ duration: 130, curve: Curve.FastOutSlowIn })
     .onClick(() => this.tap(idx))
   }
 
