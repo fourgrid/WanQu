@@ -11,13 +11,6 @@ import vibrator from '@ohos.vibrator'
 const EMOJIS: string[] = ['🍎', '🍌', '🍇', '🍉', '🍓', '🍒', '🥝', '🍍', '🥥', '🥕',
   '🌽', '🍄', '🐶', '🐱', '🐼', '🐯', '🦁', '🐸', '🐵', '🦊', '🐔', '🦋', '🐙', '🦀']
 
-/** 牌面底座配色（与图案种类一一对应） */
-const TILE_COLORS: string[] = [
-  '#FADBD8', '#FDEBD0', '#E8DAEF', '#D6EAF8', '#D5F5E3', '#FDF2D0', '#E9F7EF', '#FAD7A0',
-  '#F5CBA7', '#D4EFDF', '#D2B4DE', '#AED6F1', '#A9DFBF', '#F9E79F', '#F5B7B1', '#D7BDE2',
-  '#A3E4D7', '#F8D9E5', '#D6DBDF', '#FDE9D9', '#E59866', '#B8E998', '#C7ECEE', '#F6DDCC',
-]
-
 interface LevelSpec {
   rows: number
   cols: number
@@ -197,25 +190,33 @@ export struct LinkPage {
   @Builder
   Board() {
     Column({ space: 6 }) {
-      Stack() {
-        this.Grid()
-        if (this.pathCmds !== '') {
-          Path()
-            .commands(this.pathCmds)
-            .width(this.cols * this.cell())
-            .height(this.rows * this.cell())
-            .fillOpacity(0)
-            .stroke('#F1C40F')
-            .strokeWidth(4.5)
-            .strokeLineCap(LineCapStyle.Round)
-            .strokeLineJoin(LineJoinStyle.Round)
-            .opacity(0.95)
-            .hitTestBehavior(HitTestMode.Transparent)
+      // 经典绿台呢棋盘
+      Column() {
+        Stack() {
+          this.Grid()
+          if (this.pathCmds !== '') {
+            Path()
+              .commands(this.pathCmds)
+              .width(this.cols * this.cell())
+              .height(this.rows * this.cell())
+              .fillOpacity(0)
+              .stroke('#FFD54F')
+              .strokeWidth(4.5)
+              .strokeLineCap(LineCapStyle.Round)
+              .strokeLineJoin(LineJoinStyle.Round)
+              .opacity(0.95)
+              .hitTestBehavior(HitTestMode.Transparent)
+          }
         }
+        .width(this.cols * this.cell())
+        .height(this.rows * this.cell())
+        .alignContent(Alignment.TopStart)
       }
-      .width(this.cols * this.cell())
-      .height(this.rows * this.cell())
-      .alignContent(Alignment.TopStart)
+      .padding(7)
+      .borderRadius(14)
+      .backgroundColor('#2F6E4F')
+      .border({ width: 2, color: '#245C41' })
+      .shadow({ radius: 10, color: 'rgba(36,92,65,0.45)', offsetY: 4 })
       if (this.notice !== '') {
         Text(this.notice)
           .fontSize(11)
@@ -243,72 +244,80 @@ export struct LinkPage {
   }
 
   /**
-   * 牌格：固定尺寸 Stack。所有状态视觉（槽底/牌面/图案/描边/消散/✕）都是叠加子节点，
-   * 任何状态切换都不改变格子尺寸——点击区域与渲染位置永远一致。
+   * 牌格（经典样式）：固定尺寸 Stack。绿呢暗槽 + 象牙白 3D 小牌（上亮边）+
+   * 居中图案；选中金环/消散/✕ 全为叠加层，绝不改变布局尺寸。
    */
   @Builder
   TileCell(idx: number) {
     Stack() {
-      // 槽位底（整格命中区域恒定，空格也可见微弱槽位）
+      // 槽位（台呢上的凹槽，命中区域恒定）
       Column()
         .width(this.cell() - 4)
         .height(this.cell() - 4)
-        .borderRadius(10)
-        .backgroundColor($r('app.color.wash'))
-        .opacity(this.tiles[idx] >= 0 ? 0 : 0.6)
-      // 牌面底座
+        .borderRadius(8)
+        .backgroundColor('#245C41')
+      // 象牙牌：底面（侧影）
       if (this.tiles[idx] >= 0 && this.dying.indexOf(idx) < 0) {
         Column()
-          .width(this.cell() - 8)
-          .height(this.cell() - 8)
-          .borderRadius(10)
-          .backgroundColor(this.tileColor(idx))
-          .shadow({
-            radius: this.selected === idx ? 8 : 3,
-            color: 'rgba(43,38,32,0.28)',
-            offsetY: this.selected === idx ? 5 : 2,
-            offsetX: 0,
-          })
+          .width(this.cell() - 7)
+          .height(this.cell() - 7)
+          .borderRadius(8)
+          .backgroundColor('#B8AE93')
+          .offset({ y: 2 })
+      }
+      // 象牙牌：牌面 + 顶部高光（3D 斜边）
+      if (this.tiles[idx] >= 0 && this.dying.indexOf(idx) < 0) {
+        Stack() {
+          Column()
+            .width('100%')
+            .height('100%')
+            .borderRadius(8)
+            .backgroundColor('#FBF7ED')
+          Column()
+            .width('100%')
+            .height('42%')
+            .borderRadius({ topLeft: 8, topRight: 8 })
+            .backgroundColor('#FFFFFF99')
+        }
+        .width(this.cell() - 7)
+        .height(this.cell() - 7)
+        .offset({ y: this.selected === idx ? -3 : 0 })
+        .animation({ duration: 130, curve: Curve.FastOutSlowIn })
       }
       // 图案（存活居中；消散时放大淡出）
       if (this.tiles[idx] >= 0) {
         Text(EMOJIS[this.tiles[idx] % EMOJIS.length])
-          .fontSize(this.cell() * 0.5)
+          .fontSize(this.cell() * 0.48)
+          .offset({ y: this.selected === idx ? -2 : 0 })
+          .animation({ duration: 130 })
           .scale(this.dying.indexOf(idx) >= 0 ? { x: 1.5, y: 1.5 } : { x: 1, y: 1 })
           .opacity(this.dying.indexOf(idx) >= 0 ? 0 : 1)
           .animation({ duration: 220, curve: Curve.Friction })
       }
-      // 选中/提示描边（叠加层，不占布局）
+      // 选中/提示：金色发光描边（叠加层）
       if (this.selected === idx || this.hintPair.indexOf(idx) >= 0) {
         Column()
-          .width(this.cell() - 4)
-          .height(this.cell() - 4)
-          .borderRadius(11)
-          .border({ width: 2.5, color: $r('app.color.cinnabar') })
+          .width(this.cell() - 2)
+          .height(this.cell() - 2)
+          .borderRadius(9)
+          .border({ width: 2.5, color: '#FFD54F' })
+          .shadow({ radius: 6, color: '#FFD54F99', offsetY: 0, offsetX: 0 })
           .hitTestBehavior(HitTestMode.Transparent)
       }
       // 不可连/错误反馈（叠加层）
       if (this.wrongIdx === idx) {
         Text('✕')
-          .fontSize(this.cell() * 0.4)
-          .fontColor($r('app.color.cinnabar'))
-          .opacity(0.9)
+          .fontSize(this.cell() * 0.42)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#E74C3C')
+          .opacity(0.92)
       }
     }
     .width(this.cell())
     .height(this.cell())
-    .scale(this.selected === idx ? { x: 1.08, y: 1.08 } : { x: 1, y: 1 })
-    .animation({ duration: 130, curve: Curve.FastOutSlowIn })
     .onClick(() => this.tap(idx))
   }
 
-  private tileColor(idx: number): string {
-    const k = this.tiles[idx]
-    if (k < 0) {
-      return '#00000000'
-    }
-    return TILE_COLORS[k % TILE_COLORS.length]
-  }
 
   @Builder
   ToolBar() {
