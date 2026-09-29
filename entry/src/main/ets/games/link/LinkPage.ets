@@ -66,20 +66,28 @@ export struct LinkPage {
 
   build() {
     NavDestination() {
-      Column({ space: 12 }) {
-        GameTopBar({
-          title: `连连看 · 第${this.level}关`,
-          stat: this.playing ? `${this.score} 分` : '',
-          onBack: () => this.quit(),
-        })
-        if (!this.playing) {
-          this.Intro()
-        } else {
-          this.TimeBar()
-          this.Board()
-          this.ToolBar()
-          Blank()
+      Stack() {
+        // 页面内容层
+        Column({ space: 10 }) {
+          GameTopBar({
+            title: `连连看 · 第${this.level}关`,
+            stat: this.playing ? `${this.score} 分` : '',
+            onBack: () => this.quit(),
+          })
+          if (!this.playing) {
+            this.Intro()
+          } else {
+            this.TimeBar()
+            this.Board()
+            this.ToolBar()
+            Blank()
+          }
         }
+        .width('100%')
+        .height('100%')
+        .padding({ left: 10, right: 10, bottom: 10 })
+
+        // 结果浮层（真正的叠加层，盖满全屏）
         ResultOverlay({
           visible: this.over,
           win: this.win,
@@ -99,7 +107,6 @@ export struct LinkPage {
       }
       .width('100%')
       .height('100%')
-      .padding({ left: 16, right: 16, bottom: 10 })
     }
     .hideTitleBar(true)
     .backgroundColor($r('app.color.paper'))
@@ -180,14 +187,14 @@ export struct LinkPage {
   }
 
   private cell(): number {
-    // 牌宽收敛：保证整板（含页边距）远离左侧系统侧滑返回手势区
+    // 尽量放大棋盘：6列48 / 7列42 / 8列37（含绿呢边距后不超出屏宽）
     if (this.cols <= 6) {
-      return 44
+      return 48
     }
     if (this.cols === 7) {
-      return 39
+      return 42
     }
-    return 34
+    return 37
   }
 
   @Builder
@@ -221,7 +228,7 @@ export struct LinkPage {
         .height(this.rows * this.cell())
         .alignContent(Alignment.TopStart)
       }
-      .padding(Math.round(this.cell() / 2) + 5)
+      .padding(Math.round(this.cell() / 2) + 3)
       .clip(true)
       .borderRadius(14)
       .backgroundColor('#2F6E4F')
