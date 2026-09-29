@@ -37,7 +37,6 @@ export struct LinkPage {
   @State seconds: number = 0
   @State selected: number = -1
   @State dying: number[] = []          // 消除动画中的格
-  @State pathCmds: string = ''
   @State hintCount: number = 3
   @State shuffleCount: number = 3
   @State bombCount: number = 3
@@ -49,9 +48,13 @@ export struct LinkPage {
   @State over: boolean = false
   @State playing: boolean = false
   @State notice: string = ''
+  // 连线特效：逐段生长 + 双层发光 + 端点/拐点金点
+  @State lineSegs: string[] = []      // 每段 'M x y L x y'
+  @State lineDots: number[][] = []    // 各节点 [x, y, 是否端点(1/0)]
+  @State segShow: number = 0          // 已显示段数
   private pathStack: NavPathStack | null = null
   private timerId: number = -1
-  private pathTimerId: number = -1
+  private pathTimers: number[] = []
   private noticeTimerId: number = -1
   private rows: number = 6
   private cols: number = 6
@@ -176,10 +179,6 @@ export struct LinkPage {
     return this.totalSeconds > 0 ? this.seconds / this.totalSeconds : 0
   }
 
-  private pathWrap(): string[] {
-    return [this.pathCmds]
-  }
-
   private cell(): number {
     // 牌宽收敛：保证整板（含页边距）远离左侧系统侧滑返回手势区
     if (this.cols <= 6) {
@@ -198,22 +197,48 @@ export struct LinkPage {
       Column() {
         Stack() {
           this.Grid()
-          // 键控 ForEach：commands 字符串变化即销毁重建 Path（规避 commands 属性不重绘）
-          ForEach(this.pathWrap(), (c: string) => {
-            if (c !== '') {
-              Path()
-                .commands(c)
-                .width(this.cols * this.cell())
-                .height(this.rows * this.cell())
-                .fillOpacity(0)
-                .stroke('#FFD54F')
-                .strokeWidth(4.5)
-                .strokeLineCap(LineCapStyle.Round)
-                .strokeLineJoin(LineJoinStyle.Round)
-                .opacity(0.95)
+          // 连线特效层：逐段生长 + 双层发光（键控重建规避 commands 不重绘）
+          ForEach(this.lineSegs, (seg: string, i: number) => {
+            if (i < this.segShow) {
+              Stack() {
+                Path()
+                  .commands(seg)
+                  .width(this.cols * this.cell())
+                  .height(this.rows * this.cell())
+                  .fillOpacity(0)
+                  .stroke('#FFD54F')
+                  .strokeWidth(10)
+                  .strokeLineCap(LineCapStyle.Round)
+                  .opacity(0.26)
+                  .hitTestBehavior(HitTestMode.Transparent)
+                Path()
+                  .commands(seg)
+                  .width(this.cols * this.cell())
+                  .height(this.rows * this.cell())
+                  .fillOpacity(0)
+                  .stroke(i === this.lineSegs.length - 1 ? '#FFE082' : '#FFD54F')
+                  .strokeWidth(4.5)
+                  .strokeLineCap(LineCapStyle.Round)
+                  .opacity(0.97)
+                  .hitTestBehavior(HitTestMode.Transparent)
+              }
+              .width(this.cols * this.cell())
+              .height(this.rows * this.cell())
+              .hitTestBehavior(HitTestMode.Transparent)
+            }
+          }, (seg: string, i: number) => `seg-${i}-${seg}-${i < this.segShow}`)
+          // 节点金点：端点大、拐点小，随段生长亮起
+          ForEach(this.lineDots, (d: number[], i: number) => {
+            if (i <= this.segShow) {
+              Circle()
+                .width(d[2] > 0 ? 13 : 8)
+                .height(d[2] > 0 ? 13 : 8)
+                .fill(d[2] > 0 ? '#FFE082' : '#FFD54F')
+                .shadow({ radius: 6, color: '#FFD54FAA', offsetY: 0, offsetX: 0 })
+                .position({ x: d[0] - (d[2] > 0 ? 6.5 : 4), y: d[1] - (d[2] > 0 ? 6.5 : 4) })
                 .hitTestBehavior(HitTestMode.Transparent)
             }
-          }, (c: string) => `path-${c}`)
+          }, (d: number[], i: number) => `dot-${i}-${d[0]}-${d[1]}-${i <= this.segShow}`)
         }
         .width(this.cols * this.cell())
         .height(this.rows * this.cell())
@@ -369,7 +394,6 @@ export struct LinkPage {
     this.tiles = makeBoard(spec.rows, spec.cols, spec.kinds, () => Math.random())
     this.selected = -1
     this.dying = []
-    this.pathCmds = ''
     this.hintPair = []
     this.wrongIdx = -1
     this.hintCount = 3
@@ -379,6 +403,9 @@ export struct LinkPage {
     this.lastMatchAt = 0
     this.score = carryScore
     this.notice = ''
+    this.segShow = 0
+    this.lineSegs = []
+    this.lineDots = []
     this.win = false
     this.over = false
     this.playing = true
@@ -515,22 +542,50 @@ export struct LinkPage {
     }, 1400)
   }
 
-  /** 格点转路径命令（格中心坐标，单位 vp） */
+  /**
+   * 连线特效：格点 → 分段命令 + 节点金点，逐段生长显示后整体消隐。
+   * 每段 65ms 生长，全程显示 ~360ms。
+   */
   private showPath(path: Pt[]): void {
+    this.clearPathTimers()
     const cs = this.cell()
     const segs: string[] = []
+    const dots: number[][] = []
+    const pts: number[][] = []
     for (let i = 0; i < path.length; i++) {
-      const x = Math.round(path[i].x * cs + cs / 2)
-      const y = Math.round(path[i].y * cs + cs / 2)
-      segs.push(`${i === 0 ? 'M' : 'L'}${x} ${y}`)
+      pts.push([Math.round(path[i].x * cs + cs / 2), Math.round(path[i].y * cs + cs / 2)])
+      if (i > 0) {
+        segs.push(`M${pts[i - 1][0]} ${pts[i - 1][1]} L${pts[i][0]} ${pts[i][1]}`)
+      }
     }
-    this.pathCmds = segs.join(' ')
-    if (this.pathTimerId >= 0) {
-      clearTimeout(this.pathTimerId)
+    for (let i = 0; i < pts.length; i++) {
+      const isEnd = i === 0 || i === pts.length - 1
+      dots.push([pts[i][0], pts[i][1], isEnd ? 1 : 0])
     }
-    this.pathTimerId = setTimeout(() => {
-      this.pathCmds = ''
-    }, 320)
+    this.lineSegs = segs
+    this.lineDots = dots
+    this.segShow = 1
+    // 逐段生长
+    for (let k = 2; k <= segs.length; k++) {
+      const kk = k
+      this.pathTimers.push(setTimeout(() => {
+        this.segShow = kk
+      }, (kk - 1) * 65))
+    }
+    // 全程展示后消隐
+    const hold = segs.length * 65 + 300
+    this.pathTimers.push(setTimeout(() => {
+      this.segShow = 0
+      this.lineSegs = []
+      this.lineDots = []
+    }, hold))
+  }
+
+  private clearPathTimers(): void {
+    for (const t of this.pathTimers) {
+      clearTimeout(t)
+    }
+    this.pathTimers = []
   }
 
   private buzz(): void {
@@ -613,10 +668,7 @@ export struct LinkPage {
       clearInterval(this.timerId)
       this.timerId = -1
     }
-    if (this.pathTimerId >= 0) {
-      clearTimeout(this.pathTimerId)
-      this.pathTimerId = -1
-    }
+    this.clearPathTimers()
     if (this.noticeTimerId >= 0) {
       clearTimeout(this.noticeTimerId)
       this.noticeTimerId = -1
