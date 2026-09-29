@@ -194,7 +194,109 @@ export function isDead(tiles: number[], rows: number, cols: number): boolean {
   return remaining(tiles) > 0 && findHintPair(tiles, rows, cols).length === 0
 }
 
-/** 洗牌（保留剩余牌，重排位置），直到可解或尝试上限 */
+/** 重力方向：none 静止 | down 下落 | up 上升 | left 左移 | right 右移 | inward 向中间靠拢 */
+export const GRAVITY_DIRS: string[] = ['none', 'down', 'up', 'left', 'right', 'inward']
+
+export const GRAVITY_NAMES: Record<string, string> = {
+  'none': '经典',
+  'down': '⬇ 下落',
+  'up': '⬆ 上升',
+  'left': '⬅ 左移',
+  'right': '➡ 右移',
+  'inward': '↔ 向中间靠拢',
+}
+
+/** 牌实体（渲染层用：身份稳定，位置可变，重力移动时做滑动动画） */
+export interface TileEnt {
+  id: number
+  cell: number     // 当前格 idx
+  kind: number     // 图案
+  dying: boolean
+}
+
+/**
+ * 应用重力：按方向压实牌面。
+ * 返回新 ents（保持 id），并同步回填 tiles 棋盘（-1 空）。
+ */
+export function applyGravity(ents: TileEnt[], tiles: number[], rows: number, cols: number, dir: string): TileEnt[] {
+  if (dir === 'none') {
+    return ents
+  }
+  const next: TileEnt[] = []
+  const board: number[] = new Array(rows * cols).fill(-1)
+  const clone = (id: number, cell: number, kind: number): TileEnt => {
+    return { id: id, cell: cell, kind: kind, dying: false }
+  }
+  if (dir === 'down' || dir === 'up') {
+    for (let c = 0; c < cols; c++) {
+      const colEnts: TileEnt[] = []
+      for (const e of ents) {
+        if (e.cell % cols === c) {
+          colEnts.push(e)
+        }
+      }
+      colEnts.sort((a: TileEnt, b: TileEnt): number => a.cell - b.cell)
+      for (let k = 0; k < colEnts.length; k++) {
+        const r = dir === 'down' ? rows - 1 - k : k
+        const cell = r * cols + c
+        next.push(clone(colEnts[k].id, cell, colEnts[k].kind))
+        board[cell] = colEnts[k].kind
+      }
+    }
+  } else if (dir === 'left' || dir === 'right') {
+    for (let r = 0; r < rows; r++) {
+      const rowEnts: TileEnt[] = []
+      for (const e of ents) {
+        if (Math.floor(e.cell / cols) === r) {
+          rowEnts.push(e)
+        }
+      }
+      rowEnts.sort((a: TileEnt, b: TileEnt): number => a.cell - b.cell)
+      for (let k = 0; k < rowEnts.length; k++) {
+        const c = dir === 'left' ? k : cols - 1 - k
+        const cell = r * cols + c
+        next.push(clone(rowEnts[k].id, cell, rowEnts[k].kind))
+        board[cell] = rowEnts[k].kind
+      }
+    }
+  } else if (dir === 'inward') {
+    const mid = Math.ceil(cols / 2)
+    for (let r = 0; r < rows; r++) {
+      const leftEnts: TileEnt[] = []
+      const rightEnts: TileEnt[] = []
+      for (const e of ents) {
+        if (Math.floor(e.cell / cols) !== r) {
+          continue
+        }
+        if (e.cell % cols < mid) {
+          leftEnts.push(e)
+        } else {
+          rightEnts.push(e)
+        }
+      }
+      // 左半压实到中线左侧（右对齐），右半压实到中线右侧（左对齐）
+      leftEnts.sort((a: TileEnt, b: TileEnt): number => b.cell - a.cell)
+      rightEnts.sort((a: TileEnt, b: TileEnt): number => a.cell - b.cell)
+      for (let k = 0; k < leftEnts.length; k++) {
+        const c = mid - 1 - k
+        const cell = r * cols + c
+        next.push(clone(leftEnts[k].id, cell, leftEnts[k].kind))
+        board[cell] = leftEnts[k].kind
+      }
+      for (let k = 0; k < rightEnts.length; k++) {
+        const c = mid + k
+        const cell = r * cols + c
+        next.push(clone(rightEnts[k].id, cell, rightEnts[k].kind))
+        board[cell] = rightEnts[k].kind
+      }
+    }
+  }
+  // 回填 tiles
+  for (let i = 0; i < tiles.length; i++) {
+    tiles[i] = board[i]
+  }
+  return next
+}
 export function reshuffle(tiles: number[], rows: number, cols: number, seedFn: () => number): void {
   const aliveIdx: number[] = []
   const aliveVal: number[] = []
