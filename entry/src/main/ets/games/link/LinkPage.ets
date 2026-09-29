@@ -47,6 +47,7 @@ export struct LinkPage {
   @State pathCmds: string = ''
   @State hintCount: number = 3
   @State shuffleCount: number = 3
+  @State bombCount: number = 3
   @State hintPair: number[] = []
   @State wrongIdx: number = -1
   @State score: number = 0
@@ -61,6 +62,7 @@ export struct LinkPage {
   private noticeTimerId: number = -1
   private rows: number = 6
   private cols: number = 6
+  private lastMatchAt: number = 0   // 连击窗口（经典规则：4 秒内连续消除）
 
   aboutToDisappear(): void {
     this.stopTimers()
@@ -182,13 +184,14 @@ export struct LinkPage {
   }
 
   private cell(): number {
+    // 牌宽收敛：保证整板（含页边距）远离左侧系统侧滑返回手势区
     if (this.cols <= 6) {
-      return 46
+      return 44
     }
     if (this.cols === 7) {
-      return 42
+      return 39
     }
-    return 38
+    return 34
   }
 
   @Builder
@@ -205,6 +208,7 @@ export struct LinkPage {
             .strokeLineCap(LineCapStyle.Round)
             .strokeLineJoin(LineJoinStyle.Round)
             .opacity(0.95)
+            .hitTestBehavior(HitTestMode.Transparent)
         }
       }
       .width(this.cols * this.cell())
@@ -268,6 +272,15 @@ export struct LinkPage {
           : (this.hintPair.indexOf(idx) >= 0 ? { x: 1.08, y: 1.08 } : { x: 1, y: 1 }))
         .animation({ duration: 140, curve: Curve.FastOutSlowIn })
       }
+      // 选中描边（与缩放并用的强反馈）
+      if (this.selected === idx || this.hintPair.indexOf(idx) >= 0) {
+        Column()
+          .width(this.cell() - 4)
+          .height(this.cell() - 4)
+          .borderRadius(12)
+          .border({ width: 2.5, color: $r('app.color.cinnabar') })
+          .hitTestBehavior(HitTestMode.Transparent)
+      }
       // 消散动画
       if (this.dying.indexOf(idx) >= 0 && this.tiles[idx] >= 0) {
         Text(EMOJIS[this.tiles[idx] % EMOJIS.length])
@@ -300,9 +313,10 @@ export struct LinkPage {
 
   @Builder
   ToolBar() {
-    Row({ space: 10 }) {
-      GhostBtn({ label: `💡 提示 ×${this.hintCount}`, onTap: () => this.useHint() })
-      GhostBtn({ label: `🔀 洗牌 ×${this.shuffleCount}`, onTap: () => this.useShuffle() })
+    Row({ space: 8 }) {
+      GhostBtn({ label: `💡${this.hintCount}`, onTap: () => this.useHint() })
+      GhostBtn({ label: `🔀${this.shuffleCount}`, onTap: () => this.useShuffle() })
+      GhostBtn({ label: `💣${this.bombCount}`, onTap: () => this.useBomb() })
       Blank()
       if (this.combo >= 2) {
         Text(`连击 ×${this.combo}`)
@@ -344,7 +358,9 @@ export struct LinkPage {
     this.wrongIdx = -1
     this.hintCount = 3
     this.shuffleCount = 3
+    this.bombCount = 3
     this.combo = 0
+    this.lastMatchAt = 0
     this.score = carryScore
     this.notice = ''
     this.win = false
@@ -361,7 +377,11 @@ export struct LinkPage {
   }
 
   private tap(idx: number): void {
-    if (this.tiles[idx] < 0 || this.over || this.dying.length > 0) {
+    if (this.tiles[idx] < 0 || this.over) {
+      return
+    }
+    // 消除动画期间：仅封锁正在消散的两张牌，其余照常可点
+    if (this.dying.indexOf(idx) >= 0) {
       return
     }
     if (this.selected < 0) {
@@ -401,11 +421,19 @@ export struct LinkPage {
   }
 
   private doMatch(a: number, b: number, path: Pt[]): void {
+    // 经典连击规则：距上次消除超过 4 秒则重新计数
+    const now = Date.now()
+    if (now - this.lastMatchAt > 4000) {
+      this.combo = 0
+    }
+    this.lastMatchAt = now
     this.combo++
     this.score += 10 + (this.combo - 1) * 2
     this.selected = -1
     this.dying = [a, b]
-    this.showPath(path)
+    if (path.length > 0) {
+      this.showPath(path)
+    }
     this.buzz()
     setTimeout(() => {
       const next = this.tiles.slice()
@@ -419,6 +447,56 @@ export struct LinkPage {
         this.autoReshuffle()
       }
     }, 220)
+  }
+
+  /** 炸弹道具（经典三件套之一）：对选中牌与其同图案搭档直接消除，无需连线 */
+  private useBomb(): void {
+    if (this.bombCount <= 0 || this.over) {
+      return
+    }
+    const a = this.selected
+    if (a < 0 || this.tiles[a] < 0) {
+      this.showToast('先点选一张牌，再用炸弹')
+      return
+    }
+    let b = -1
+    for (let i = 0; i < this.tiles.length; i++) {
+      if (i !== a && this.tiles[i] === this.tiles[a]) {
+        b = i
+        break
+      }
+    }
+    if (b < 0) {
+      return
+    }
+    this.bombCount--
+    // 无路径直接消除（不触发连击加成，基础分 10）
+    this.score += 10
+    this.selected = -1
+    this.dying = [a, b]
+    this.buzz()
+    setTimeout(() => {
+      const next = this.tiles.slice()
+      next[a] = -1
+      next[b] = -1
+      this.tiles = next
+      this.dying = []
+      if (remaining(this.tiles) === 0) {
+        this.clearLevel()
+      } else if (isDead(this.tiles, this.rows, this.cols)) {
+        this.autoReshuffle()
+      }
+    }, 220)
+  }
+
+  private showToast(msg: string): void {
+    this.notice = msg
+    if (this.noticeTimerId >= 0) {
+      clearTimeout(this.noticeTimerId)
+    }
+    this.noticeTimerId = setTimeout(() => {
+      this.notice = ''
+    }, 1400)
   }
 
   /** 格点转路径命令（格中心坐标，单位 vp） */
