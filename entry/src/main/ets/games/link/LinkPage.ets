@@ -1,12 +1,22 @@
 /**
- * 连连看页：关卡递增 / 两折连通动画 / 提示与洗牌道具 / 倒计时
+ * 连连看 · 产品级
+ * 特色：两折路径连线动画 · 牌面设计（底座+图案+高光）· 选中浮起 ·
+ *       消除缩放消散 · 连击计分 · 震动反馈 · 时间条 · 提示/洗牌道具 · 星级通关
  */
 import { makeBoard, findPath, findHintPair, isDead, reshuffle, remaining, Pt } from './LinkEngine'
-import { GameTopBar, PrimaryBtn, ResultOverlay, Tag } from '../../components/Common'
+import { GameTopBar, PrimaryBtn, GhostBtn, ResultOverlay } from '../../components/Common'
 import { GameStore } from '../../store/GameStore'
+import vibrator from '@ohos.vibrator'
 
-const EMOJIS: string[] = ['🀄', '🍎', '🍌', '🍇', '🍉', '🍓', '🍒', '🥝', '🍍', '🥕', '🌽', '🍄',
-  '🐶', '🐱', '🐼', '🐯', '🦁', '🐸', '🐵', '🦄', '🐔', '🦋', '🐙', '🦀']
+const EMOJIS: string[] = ['🍎', '🍌', '🍇', '🍉', '🍓', '🍒', '🥝', '🍍', '🥥', '🥕',
+  '🌽', '🍄', '🐶', '🐱', '🐼', '🐯', '🦁', '🐸', '🐵', '🦊', '🐔', '🦋', '🐙', '🦀']
+
+/** 牌面底座配色（与图案种类一一对应） */
+const TILE_COLORS: string[] = [
+  '#FADBD8', '#FDEBD0', '#E8DAEF', '#D6EAF8', '#D5F5E3', '#FDF2D0', '#E9F7EF', '#FAD7A0',
+  '#F5CBA7', '#D4EFDF', '#D2B4DE', '#AED6F1', '#A9DFBF', '#F9E79F', '#F5B7B1', '#D7BDE2',
+  '#A3E4D7', '#F8D9E5', '#D6DBDF', '#FDE9D9', '#E59866', '#B8E998', '#C7ECEE', '#F6DDCC',
+]
 
 interface LevelSpec {
   rows: number
@@ -16,31 +26,39 @@ interface LevelSpec {
 }
 
 const LEVELS: LevelSpec[] = [
-  { rows: 6, cols: 6, kinds: 10, time: 150 },
-  { rows: 6, cols: 7, kinds: 14, time: 180 },
-  { rows: 7, cols: 8, kinds: 18, time: 210 },
-  { rows: 8, cols: 8, kinds: 22, time: 240 },
-  { rows: 9, cols: 8, kinds: 24, time: 260 },
-  { rows: 10, cols: 8, kinds: 24, time: 300 },
+  { rows: 6, cols: 6, kinds: 8, time: 150 },
+  { rows: 6, cols: 7, kinds: 12, time: 170 },
+  { rows: 7, cols: 8, kinds: 14, time: 200 },
+  { rows: 8, cols: 8, kinds: 16, time: 230 },
+  { rows: 9, cols: 8, kinds: 18, time: 250 },
+  { rows: 10, cols: 8, kinds: 20, time: 280 },
+  { rows: 10, cols: 8, kinds: 22, time: 300 },
+  { rows: 10, cols: 8, kinds: 24, time: 320 },
 ]
 
 @Component
 export struct LinkPage {
   @State tiles: number[] = []
   @State level: number = 1
-  @State selected: number = -1
-  @State pathCmds: string = ''
-  @State flashPair: number[] = []
+  @State totalSeconds: number = 1
   @State seconds: number = 0
+  @State selected: number = -1
+  @State dying: number[] = []          // 消除动画中的格
+  @State pathCmds: string = ''
   @State hintCount: number = 3
   @State shuffleCount: number = 3
+  @State hintPair: number[] = []
+  @State wrongIdx: number = -1
   @State score: number = 0
+  @State combo: number = 0
   @State win: boolean = false
   @State over: boolean = false
   @State playing: boolean = false
+  @State notice: string = ''
   private pathStack: NavPathStack | null = null
   private timerId: number = -1
   private pathTimerId: number = -1
+  private noticeTimerId: number = -1
   private rows: number = 6
   private cols: number = 6
 
@@ -53,28 +71,13 @@ export struct LinkPage {
       Column({ space: 12 }) {
         GameTopBar({
           title: `连连看 · 第${this.level}关`,
-          stat: this.playing ? `⏱${this.seconds}  剩${remaining(this.tiles)}` : '',
+          stat: this.playing ? `${this.score} 分` : '',
           onBack: () => this.quit(),
         })
         if (!this.playing) {
-          Column({ space: 14 }) {
-            Text('🔗')
-              .fontSize(46)
-            Text('连连看')
-              .fontSize(22)
-              .fontWeight(FontWeight.Bold)
-              .fontColor($r('app.color.ink'))
-            Text('点选两张相同图案，连线不超过两个弯即可消除；\n消除全部过关，道具有限慎用。')
-              .fontSize(12)
-              .fontColor($r('app.color.ink_light'))
-              .textAlign(TextAlign.Center)
-              .lineHeight(19)
-            PrimaryBtn({ label: '开始游戏', onTap: () => this.startLevel(1, 0) })
-            Blank()
-          }
-          .width('100%')
-          .layoutWeight(1)
+          this.Intro()
         } else {
+          this.TimeBar()
           this.Board()
           this.ToolBar()
           Blank()
@@ -82,13 +85,13 @@ export struct LinkPage {
         ResultOverlay({
           visible: this.over,
           win: this.win,
-          title: this.win ? `第${this.level}关通过！` : '时间到',
-          detail: this.win ? `当前 ${this.score + this.seconds} 分` : `消除了 ${this.score} 分`,
+          title: this.win ? `${'⭐'.repeat(this.stars())} 第${this.level}关通过` : '时间到',
+          detail: this.win ? `得分 ${this.score + this.seconds * 2} · 剩余 ${this.seconds}s` : `本局 ${this.score} 分`,
           primaryLabel: this.win ? '下一关' : '再来一局',
           secondaryLabel: '返回大厅',
           onPrimary: () => {
             if (this.win) {
-              this.startLevel(this.level + 1, this.score)
+              this.startLevel(this.level + 1, this.score + this.seconds * 2)
             } else {
               this.startLevel(1, 0)
             }
@@ -108,71 +111,211 @@ export struct LinkPage {
   }
 
   @Builder
+  Intro() {
+    Column({ space: 14 }) {
+      Image($r('app.media.game_link'))
+        .width(120)
+        .height(120)
+        .borderRadius(28)
+        .shadow({ radius: 12, color: 'rgba(43,38,32,0.18)', offsetY: 5 })
+      Text('连连看')
+        .fontSize(24)
+        .fontWeight(FontWeight.Bold)
+        .fontColor($r('app.color.ink'))
+      Text('点选两张相同图案，连线不超过两个弯即消除。\n连击加分；道具有限，慎用；时间将尽时条会变红。')
+        .fontSize(12)
+        .fontColor($r('app.color.ink_light'))
+        .textAlign(TextAlign.Center)
+        .lineHeight(19)
+      Text(this.bestText())
+        .fontSize(13)
+        .fontColor($r('app.color.gold'))
+      PrimaryBtn({ label: '开始游戏', onTap: () => this.startLevel(1, 0) })
+      Blank()
+    }
+    .width('100%')
+    .layoutWeight(1)
+  }
+
+  private bestText(): string {
+    const r = GameStore.get('link')
+    if (r.playCount === 0) {
+      return ''
+    }
+    return `已到第 ${r.bestLevel} 关 · 最高 ${r.bestScore} 分`
+  }
+
+  /** 时间条 */
+  @Builder
+  TimeBar() {
+    Column({ space: 4 }) {
+      Row() {
+        Text(`⏱ ${this.seconds}s`)
+          .fontSize(11)
+          .fontColor(this.timeRatio() < 0.25 ? $r('app.color.cinnabar') : $r('app.color.ink_light'))
+        Blank()
+        Text(`剩 ${remaining(this.tiles) / 2} 对`)
+          .fontSize(11)
+          .fontColor($r('app.color.ink_light'))
+      }
+      .width('100%')
+      Stack({ alignContent: Alignment.Start }) {
+        Column()
+          .width('100%')
+          .height(7)
+          .borderRadius(4)
+          .backgroundColor($r('app.color.wash'))
+        Column()
+          .width(`${Math.max(0, Math.round(this.timeRatio() * 100))}%`)
+          .height(7)
+          .borderRadius(4)
+          .backgroundColor(this.timeRatio() < 0.25 ? $r('app.color.cinnabar') : $r('app.color.jade_ok'))
+          .animation({ duration: 300 })
+      }
+      .width('100%')
+    }
+    .width('100%')
+  }
+
+  private timeRatio(): number {
+    return this.totalSeconds > 0 ? this.seconds / this.totalSeconds : 0
+  }
+
+  private cell(): number {
+    if (this.cols <= 6) {
+      return 46
+    }
+    if (this.cols === 7) {
+      return 42
+    }
+    return 38
+  }
+
+  @Builder
   Board() {
+    Column({ space: 6 }) {
+      Stack() {
+        this.Grid()
+        if (this.pathCmds !== '') {
+          Path()
+            .commands(this.pathCmds)
+            .fillOpacity(0)
+            .stroke('#F1C40F')
+            .strokeWidth(4.5)
+            .strokeLineCap(LineCapStyle.Round)
+            .strokeLineJoin(LineJoinStyle.Round)
+            .opacity(0.95)
+        }
+      }
+      .width(this.cols * this.cell())
+      .height(this.rows * this.cell())
+      .alignContent(Alignment.TopStart)
+      if (this.notice !== '') {
+        Text(this.notice)
+          .fontSize(11)
+          .fontColor($r('app.color.gold'))
+          .padding({ top: 2 })
+      }
+    }
+    .width('100%')
+    .justifyContent(FlexAlign.Center)
+  }
+
+  @Builder
+  Grid() {
     Column() {
       ForEach(this.range(this.rows), (r: number) => {
         Row() {
           ForEach(this.range(this.cols), (c: number) => {
             this.TileCell(r * this.cols + c)
-          }, (c: number) => `tc-${r}-${c}-${this.tiles[r * this.cols + c]}`)
+          }, (c: number) => `tc-${r}-${c}-${this.tiles[r * this.cols + c]}-${this.dying.indexOf(r * this.cols + c) >= 0}`)
         }
-      }, (r: number) => `tr-${r}-${r}`)
+      }, (r: number) => `tr-${r}`)
     }
-    .width('100%')
   }
 
   @Builder
   TileCell(idx: number) {
     Column() {
-      if (this.tiles[idx] >= 0) {
+      if (this.tiles[idx] >= 0 && this.dying.indexOf(idx) < 0) {
+        Stack() {
+          // 底座
+          Column()
+            .width('100%')
+            .height('100%')
+            .borderRadius(10)
+            .backgroundColor(this.tileColor(idx))
+            .shadow({
+              radius: this.selected === idx ? 8 : 3,
+              color: 'rgba(43,38,32,0.28)',
+              offsetY: this.selected === idx ? 5 : 2,
+              offsetX: 0,
+            })
+          // 顶部高光
+          Column()
+            .width('92%')
+            .height('38%')
+            .borderRadius({ topLeft: 9, topRight: 9 })
+            .backgroundColor('#FFFFFF66')
+          // 图案
+          Text(EMOJIS[this.tiles[idx] % EMOJIS.length])
+            .fontSize(this.cell() * 0.5)
+        }
+        .width(this.cell() - 8)
+        .height(this.cell() - 8)
+        .alignContent(Alignment.Center)
+        .scale(this.selected === idx ? { x: 1.1, y: 1.1 }
+          : (this.hintPair.indexOf(idx) >= 0 ? { x: 1.08, y: 1.08 } : { x: 1, y: 1 }))
+        .animation({ duration: 140, curve: Curve.FastOutSlowIn })
+      }
+      // 消散动画
+      if (this.dying.indexOf(idx) >= 0 && this.tiles[idx] >= 0) {
         Text(EMOJIS[this.tiles[idx] % EMOJIS.length])
-          .fontSize(this.cellSize() * 0.52)
-          .scale(this.flashPair.indexOf(idx) >= 0 ? { x: 1.25, y: 1.25 } : { x: 1, y: 1 })
-          .opacity(this.flashPair.indexOf(idx) >= 0 ? 0.4 : 1)
-          .animation({ duration: 180 })
+          .fontSize(this.cell() * 0.5)
+          .scale({ x: 1.5, y: 1.5 })
+          .opacity(0)
+          .animation({ duration: 220, curve: Curve.Friction })
+      }
+      if (this.wrongIdx === idx) {
+        Text('✕')
+          .fontSize(this.cell() * 0.4)
+          .fontColor($r('app.color.cinnabar'))
+          .opacity(0.9)
+          .animation({ duration: 240 })
       }
     }
     .justifyContent(FlexAlign.Center)
-    .width(this.cellSize())
-    .height(this.cellSize())
-    .margin(1.5)
-    .backgroundColor(this.selected === idx ? $r('app.color.gold') : $r('app.color.card'))
-    .borderRadius(10)
-    .border({
-      width: this.selected === idx ? 2 : 1,
-      color: this.selected === idx ? $r('app.color.cinnabar') : $r('app.color.divider'),
-    })
+    .width(this.cell())
+    .height(this.cell())
     .onClick(() => this.tap(idx))
+  }
+
+  private tileColor(idx: number): string {
+    const k = this.tiles[idx]
+    if (k < 0) {
+      return '#00000000'
+    }
+    return TILE_COLORS[k % TILE_COLORS.length]
   }
 
   @Builder
   ToolBar() {
     Row({ space: 10 }) {
-      Tag({ label: `第${this.level}关`, tone: 'red' })
-      Text(`💡提示 ×${this.hintCount}`)
-        .fontSize(12)
-        .fontColor($r('app.color.ink'))
-        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-        .backgroundColor($r('app.color.wash'))
-        .borderRadius(10)
-        .onClick(() => this.useHint())
-      Text(`🔀洗牌 ×${this.shuffleCount}`)
-        .fontSize(12)
-        .fontColor($r('app.color.ink'))
-        .padding({ left: 12, right: 12, top: 7, bottom: 7 })
-        .backgroundColor($r('app.color.wash'))
-        .borderRadius(10)
-        .onClick(() => this.useShuffle())
+      GhostBtn({ label: `💡 提示 ×${this.hintCount}`, onTap: () => this.useHint() })
+      GhostBtn({ label: `🔀 洗牌 ×${this.shuffleCount}`, onTap: () => this.useShuffle() })
       Blank()
-      Text(`连击 ${this.combo}`)
-        .fontSize(12)
-        .fontColor($r('app.color.gold'))
+      if (this.combo >= 2) {
+        Text(`连击 ×${this.combo}`)
+          .fontSize(13)
+          .fontWeight(FontWeight.Bold)
+          .fontColor($r('app.color.cinnabar'))
+          .scale({ x: 1 + Math.min(this.combo, 8) * 0.04, y: 1 + Math.min(this.combo, 8) * 0.04 })
+          .animation({ duration: 160 })
+      }
     }
     .width('100%')
     .alignItems(VerticalAlign.Center)
   }
-
-  @State combo: number = 0
 
   private range(n: number): number[] {
     const r: number[] = []
@@ -180,12 +323,6 @@ export struct LinkPage {
       r.push(i)
     }
     return r
-  }
-
-  private cellSize(): number {
-    const total = 360 - 32
-    const s = Math.floor(total / this.cols) - 3
-    return Math.min(48, s)
   }
 
   private spec(): LevelSpec {
@@ -197,15 +334,19 @@ export struct LinkPage {
     this.level = level
     this.rows = spec.rows
     this.cols = spec.cols
+    this.totalSeconds = spec.time
+    this.seconds = spec.time
     this.tiles = makeBoard(spec.rows, spec.cols, spec.kinds, () => Math.random())
     this.selected = -1
+    this.dying = []
     this.pathCmds = ''
-    this.flashPair = []
-    this.seconds = spec.time
+    this.hintPair = []
+    this.wrongIdx = -1
     this.hintCount = 3
     this.shuffleCount = 3
     this.combo = 0
     this.score = carryScore
+    this.notice = ''
     this.win = false
     this.over = false
     this.playing = true
@@ -220,11 +361,12 @@ export struct LinkPage {
   }
 
   private tap(idx: number): void {
-    if (this.tiles[idx] < 0 || this.over) {
+    if (this.tiles[idx] < 0 || this.over || this.dying.length > 0) {
       return
     }
     if (this.selected < 0) {
       this.selected = idx
+      this.wrongIdx = -1
       return
     }
     if (this.selected === idx) {
@@ -233,6 +375,11 @@ export struct LinkPage {
     }
     const a = this.selected
     if (this.tiles[a] !== this.tiles[idx]) {
+      // 不同图案：切换选中并给出错误反馈
+      this.wrongIdx = idx
+      setTimeout(() => {
+        this.wrongIdx = -1
+      }, 260)
       this.selected = idx
       this.combo = 0
       return
@@ -241,32 +388,63 @@ export struct LinkPage {
     const pb: Pt = { x: idx % this.cols, y: Math.floor(idx / this.cols) }
     const path = findPath(this.tiles, this.rows, this.cols, pa, pb)
     if (path.length === 0) {
+      // 不可连：提示
+      this.wrongIdx = idx
+      setTimeout(() => {
+        this.wrongIdx = -1
+      }, 260)
       this.selected = idx
+      this.combo = 0
       return
     }
-    // 消除
-    const next = this.tiles.slice()
-    next[a] = -1
-    next[idx] = -1
-    this.tiles = next
-    this.selected = -1
-    this.combo++
-    this.score += 10 + (this.combo - 1) * 2
-    this.showPath(path)
-    this.flashPair = [a, idx]
-    setTimeout(() => {
-      this.flashPair = []
-    }, 240)
-    if (remaining(this.tiles) === 0) {
-      this.clearLevel()
-    } else if (isDead(this.tiles, this.rows, this.cols)) {
-      this.reshuffleNow()
-    }
+    this.doMatch(a, idx, path)
   }
 
-  /** 展示连线（把格坐标转成路径命令，叠层 Path 无法便捷叠加在网格上，用闪光替代） */
-  private showPath(_path: Pt[]): void {
-    // v1 以闪光反馈替代线绘制
+  private doMatch(a: number, b: number, path: Pt[]): void {
+    this.combo++
+    this.score += 10 + (this.combo - 1) * 2
+    this.selected = -1
+    this.dying = [a, b]
+    this.showPath(path)
+    this.buzz()
+    setTimeout(() => {
+      const next = this.tiles.slice()
+      next[a] = -1
+      next[b] = -1
+      this.tiles = next
+      this.dying = []
+      if (remaining(this.tiles) === 0) {
+        this.clearLevel()
+      } else if (isDead(this.tiles, this.rows, this.cols)) {
+        this.autoReshuffle()
+      }
+    }, 220)
+  }
+
+  /** 格点转路径命令（格中心坐标，单位 vp） */
+  private showPath(path: Pt[]): void {
+    const cs = this.cell()
+    const segs: string[] = []
+    for (let i = 0; i < path.length; i++) {
+      const x = Math.round(path[i].x * cs + cs / 2)
+      const y = Math.round(path[i].y * cs + cs / 2)
+      segs.push(`${i === 0 ? 'M' : 'L'}${x} ${y}`)
+    }
+    this.pathCmds = segs.join(' ')
+    if (this.pathTimerId >= 0) {
+      clearTimeout(this.pathTimerId)
+    }
+    this.pathTimerId = setTimeout(() => {
+      this.pathCmds = ''
+    }, 320)
+  }
+
+  private buzz(): void {
+    try {
+      vibrator.startVibration({ type: 'time', duration: 28 }, { id: 0, usage: 'touch' })
+    } catch (e) {
+      // 无权限或不支持时静默
+    }
   }
 
   private useHint(): void {
@@ -277,11 +455,10 @@ export struct LinkPage {
     if (pair.length === 2) {
       this.hintCount--
       this.selected = -1
-      const idxA = pair[0].y * this.cols + pair[0].x
-      this.flashPair = [idxA, pair[1].y * this.cols + pair[1].x]
+      this.hintPair = [pair[0].y * this.cols + pair[0].x, pair[1].y * this.cols + pair[1].x]
       setTimeout(() => {
-        this.flashPair = []
-      }, 600)
+        this.hintPair = []
+      }, 900)
     }
   }
 
@@ -290,19 +467,41 @@ export struct LinkPage {
       return
     }
     this.shuffleCount--
-    this.reshuffleNow()
+    this.reshuffleNow('已洗牌')
   }
 
-  private reshuffleNow(): void {
+  private autoReshuffle(): void {
+    this.reshuffleNow('无可连对，自动洗牌')
+  }
+
+  private reshuffleNow(msg: string): void {
     const next = this.tiles.slice()
     reshuffle(next, this.rows, this.cols, () => Math.random())
     this.tiles = next
     this.selected = -1
+    this.notice = msg
+    if (this.noticeTimerId >= 0) {
+      clearTimeout(this.noticeTimerId)
+    }
+    this.noticeTimerId = setTimeout(() => {
+      this.notice = ''
+    }, 1600)
+  }
+
+  private stars(): number {
+    const ratio = this.timeRatio()
+    if (ratio >= 0.5) {
+      return 3
+    }
+    if (ratio >= 0.25) {
+      return 2
+    }
+    return 1
   }
 
   private clearLevel(): void {
     this.stopTimers()
-    this.score += this.seconds   // 时间奖励
+    this.score += this.seconds * 2
     this.win = true
     this.over = true
     GameStore.recordScore('link', this.score, this.level)
@@ -323,6 +522,10 @@ export struct LinkPage {
     if (this.pathTimerId >= 0) {
       clearTimeout(this.pathTimerId)
       this.pathTimerId = -1
+    }
+    if (this.noticeTimerId >= 0) {
+      clearTimeout(this.noticeTimerId)
+      this.noticeTimerId = -1
     }
   }
 

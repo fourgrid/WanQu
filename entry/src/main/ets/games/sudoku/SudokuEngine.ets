@@ -143,10 +143,12 @@ export function makePuzzle(rand: Rand, targetClues: number): SudokuPuzzle {
     order[j] = t
   }
   let clues = 81
+  let attempts = 0
   for (const idx of order) {
-    if (clues <= targetClues) {
+    if (clues <= targetClues || attempts >= 110) {
       break
     }
+    attempts++
     const backup = puzzle[idx]
     puzzle[idx] = 0
     if (countSolutions(puzzle, 2) !== 1) {
