@@ -1,6 +1,20 @@
 {
   "app": {
-    "signingConfigs": [],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "/Users/pinger/.ohos/config/default_WanQu_lwNSWeHGjE-0_eEmtUg_37l7Bukruo-opmiuwU2LKuk=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001BE5305543D9C2F5DF027341037B2AEA22B66FBA268FDD8A73E88DE76B4EDD39187AD2F2EF7D7556",
+          "profile": "/Users/pinger/.ohos/config/default_WanQu_lwNSWeHGjE-0_eEmtUg_37l7Bukruo-opmiuwU2LKuk=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "/Users/pinger/.ohos/config/default_WanQu_lwNSWeHGjE-0_eEmtUg_37l7Bukruo-opmiuwU2LKuk=.p12",
+          "storePassword": "0000001B207B9D058E21DEC0FC9E7243966F7776146908064AFBA66335E0EA3FB490F775DC6C242AA0FA90"
+        }
+      }
+    ],
     "products": [
       {
         "name": "default",
